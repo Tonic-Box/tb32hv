@@ -11,7 +11,7 @@ _start:
 manager:
     li r1, prompt
     call puts
-    li r1, 0x10000004
+    li r1, 0x20000004
     lbu r2, [r1, 0]
     tst r2, r2
     beq m_quit
@@ -91,7 +91,7 @@ cdo:
     bra manager
 
 m_kill:
-    li r1, 0x10000004
+    li r1, 0x20000004
     lbu r2, [r1, 0]
     li r3, 0x30
     sub r2, r2, r3
@@ -133,7 +133,7 @@ lend:
     bra manager
 
 puts:
-    li r3, 0x10000000
+    li r3, 0x20000000
 putsl:
     lbu r4, [r1, 0]
     tst r4, r4
@@ -164,7 +164,7 @@ rvs:
     ret
 
 m_info:
-    li r1, 0x10000004
+    li r1, 0x20000004
     lbu r2, [r1, 0]
     li r3, 0x30
     sub r2, r2, r3
@@ -172,7 +172,7 @@ m_info:
     li r1, infovm
     call puts
     addi r9, r8, 0x30
-    li r3, 0x10000000
+    li r3, 0x20000000
     sb r9, [r3, 0]
     li r1, infopc
     call puts
@@ -185,7 +185,7 @@ m_info:
     bra manager
 
 puthex:
-    li r3, 0x10000000
+    li r3, 0x20000000
     li r4, 32
 ph_l:
     addi r4, r4, -4
@@ -245,12 +245,6 @@ h_trap:
     li r4, 10
     cmp r3, r4
     beq h_exit
-    li r4, 23
-    cmp r3, r4
-    beq h_mmio
-    li r4, 21
-    cmp r3, r4
-    beq h_mmio
     hlt
 
 h_exit:
@@ -263,67 +257,10 @@ h_exit:
     call puts
     bra manager
 
-h_mmio:
-    csrr r7, 0x64A
-    srli r10, r7, 25
-    li r11, 0x38
-    cmp r10, r11
-    bge h_tx
-    li r6, 0x10000004
-    lbu r12, [r6, 0]
-    li r6, 0x1D
-    cmp r12, r6
-    beq m_detach
-    srli r8, r7, 21
-    andi r8, r8, 0xF
-    slli r9, r8, 2
-    add r9, r1, r9
-    sw r12, [r9, 0]
-    bra h_adv
-h_tx:
-    srli r8, r7, 21
-    andi r8, r8, 0xF
-    slli r9, r8, 2
-    add r9, r1, r9
-    lw r12, [r9, 0]
-    li r13, 0x10000000
-    sb r12, [r13, 0]
-    bra h_adv
-m_detach:
-    li r1, detached
-    call puts
-    bra manager
-
-h_adv:
-    lw r14, [r1, 64]
-    addi r14, r14, 4
-    sw r14, [r1, 64]
-    csrw 0x641, r14
-    lw r2, [r1, 76]
-    csrw 0x600, r2
-    lw r2, [r1, 72]
-    csrw 0x101, r2
-    lw r2, [r1, 8]
-    lw r3, [r1, 12]
-    lw r4, [r1, 16]
-    lw r5, [r1, 20]
-    lw r6, [r1, 24]
-    lw r7, [r1, 28]
-    lw r8, [r1, 32]
-    lw r9, [r1, 36]
-    lw r10, [r1, 40]
-    lw r11, [r1, 44]
-    lw r12, [r1, 48]
-    lw r13, [r1, 52]
-    lw r14, [r1, 56]
-    lw r15, [r1, 60]
-    lw r1, [r1, 4]
-    hret
-
 h_enter:
     li r2, 0x500
     lw r1, [r2, 0]
-    slli r3, r1, 1
+    slli r3, r1, 6
     addi r3, r3, 16
     li r4, 0x80000000
     or r3, r3, r4
@@ -369,9 +306,8 @@ novm: .asciz "no such vm\n"
 full: .asciz "no free slot\n"
 created: .asciz "created\n"
 killed: .asciz "killed\n"
-attach: .asciz "\n[attached, ctrl-] to detach]\n"
+attach: .asciz "\n[attached]\n"
 vmexit: .asciz "\n[vm exited]\n"
-detached: .asciz "\n[detached]\n"
 lst0: .asciz "vm0="
 lst1: .asciz " vm1="
 sact: .asciz "active"
