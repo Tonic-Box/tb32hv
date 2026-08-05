@@ -45,13 +45,32 @@ h_trap:
     hlt
 
 h_exit:
+    li r1, 0x700
+    lw r2, [r1, 0]
+    addi r2, r2, 1
+    li r3, 2
+    cmp r2, r3
+    bge h_halt
+    sw r2, [r1, 0]
+    slli r4, r2, 1
+    addi r4, r4, 16
+    li r5, 0x80000000
+    or r4, r4, r5
+    csrw 0x680, r4
+    li r4, 0x1000
+    csrw 0x641, r4
+    li r4, 3
+    csrw 0x600, r4
+    hret
+
+h_halt:
     hlt
 
 h_mmio:
     csrr r5, 0x643
     li r6, 0x10000000
     cmp r5, r6
-    bne h_exit
+    bne h_halt
     csrr r7, 0x64A
     srli r8, r7, 21
     andi r8, r8, 0xF

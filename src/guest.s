@@ -6,11 +6,17 @@ _start:
 gloop:
     lbu r5, [r4, 0]
     tst r5, r5
-    beq gdone
+    beq gid
     sb r5, [r3, 0]
     addi r4, r4, 1
     bra gloop
-gdone:
+gid:
+    li r6, 0x100
+    lbu r7, [r6, 0]
+    addi r7, r7, 0x30
+    sb r7, [r3, 0]
+    li r8, 0x0A
+    sb r8, [r3, 0]
     sys
 .rodata
-gmsg: .asciz "hello from the guest\n"
+gmsg: .asciz "guest "

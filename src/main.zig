@@ -4,9 +4,10 @@ const loader = @import("loader.zig");
 const machine = @import("machine.zig");
 
 const RAM_SIZE: usize = 64 * 1024 * 1024;
-const S2_ROOT: u32 = 0x10000;
-const S2_L2: u32 = 0x11000;
+const NVMS: u32 = 2;
+const S2_BASE: u32 = 0x10000;
 const GUEST_BASE: u32 = 0x20000;
+const PARTITION: u32 = 0x10000;
 const GUEST_PAGES: u32 = 16;
 
 const PTE_V: u32 = 1;
@@ -33,8 +34,14 @@ pub fn main() !void {
     @memset(ram, 0);
 
     const hv_img = try loader.load(ram, hv_tbx);
-    _ = try loader.load(ram[GUEST_BASE..], guest_tbx);
-    buildStage2(ram);
+
+    var v: u32 = 0;
+    while (v < NVMS) : (v += 1) {
+        const part = GUEST_BASE + v * PARTITION;
+        _ = try loader.load(ram[part..], guest_tbx);
+        ram[part + 0x100] = @intCast(v + 1);
+        buildStage2(ram, S2_BASE + v * 0x2000, part);
+    }
 
     var m = machine.Machine{ .ram = ram };
     var hart = tb32.Hart{ .mode = .hypervisor };
@@ -43,14 +50,15 @@ pub fn main() !void {
     run(&hart, &m);
 }
 
-/// Builds the guest's stage-2 page table: an identity map of the guest's physical pages onto
-/// the host frames at `GUEST_BASE`, leaving the virtual UART aperture unmapped so guest access
-/// traps to the hypervisor.
-fn buildStage2(ram: []u8) void {
-    putU32(ram, S2_ROOT, S2_L2 | PTE_V);
+/// Builds one guest's stage-2 page table (rooted at `root`) mapping the guest's physical pages
+/// onto the host partition at `part`, and leaving the virtual UART aperture unmapped so guest
+/// access traps to the hypervisor. Each guest gets a disjoint partition, isolating them.
+fn buildStage2(ram: []u8, root: u32, part: u32) void {
+    const l2 = root + 0x1000;
+    putU32(ram, root, l2 | PTE_V);
     var i: u32 = 0;
     while (i < GUEST_PAGES) : (i += 1) {
-        putU32(ram, S2_L2 + i * 4, (GUEST_BASE + i * 0x1000) | PTE_RWX | PTE_V);
+        putU32(ram, l2 + i * 4, (part + i * 0x1000) | PTE_RWX | PTE_V);
     }
 }
 
