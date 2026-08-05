@@ -44,14 +44,16 @@ pub fn main() !void {
             .vm_id = v + 1,
             .ram_size = PARTITION,
             .mmio_base = machine.DEV_BASE,
-            .console_reg = machine.DEV_BASE,
+            .console_reg = machine.DEV_BASE + machine.CON_TX,
+            .rtc_reg = machine.DEV_BASE + machine.RTC_SECS,
+            .rng_reg = machine.DEV_BASE + machine.RNG_OUT,
         });
         const root = S2_BASE + v * S2_STRIDE;
         var next = root + 0x1000;
         buildStage2(ram, root, &next, part);
     }
 
-    var m = machine.Machine{ .ram = ram };
+    var m = machine.Machine{ .ram = ram, .epoch = @truncate(@as(u64, @intCast(std.time.timestamp()))) };
     var hart = tb32.Hart{ .mode = .hypervisor };
     hart.cpu.pc = hv_img.entry;
 
@@ -98,11 +100,18 @@ fn getU32(ram: []const u8, addr: u32) u32 {
         (@as(u32, ram[addr + 2]) << 16) | (@as(u32, ram[addr + 3]) << 24);
 }
 
-/// Executes the hypervisor hart, advancing the machine timer, until it halts.
+/// Guest execution steps per virtual millisecond. The RTC and the guest timer (stimecmp) share
+/// this hart.time base, so sleep/alarm deadlines and preemption ticks stay coherent.
+const STEPS_PER_MS: u64 = 1000;
+
+/// Executes the hypervisor hart, advancing the machine timer and the RTC's virtual clock (derived
+/// from hart.time so it is deterministic and coherent with the guest timer), until it halts.
 fn run(hart: *tb32.Hart, m: *machine.Machine) void {
     var guard: u64 = 0;
     while (guard < 1_000_000_000) : (guard += 1) {
         if (hart.v) hart.time +%= 1;
+        m.rtc_ms = @truncate(hart.time / STEPS_PER_MS);
+        m.rtc_secs = m.epoch +% (m.rtc_ms / 1000);
         switch (tb32.stepV(hart, m)) {
             .ok => {},
             .halt => break,

@@ -55,6 +55,46 @@ rse:
     sb r10, [r3, 0]
     li r10, 0x0A
     sb r10, [r3, 0]
+    li r7, tmr_h
+    csrw 0x105, r7
+    li r7, 0x20
+    csrw 0x104, r7
+    li r8, 0
+    li r7, 0x2000000C
+    lw r9, [r7, 0]
+    li r10, 1000
+    mul r9, r9, r10
+    addi r9, r9, 3000
+    csrw 0x14D, r9
+    li r7, 2
+    csrw 0x100, r7
+tspin:
+    li r7, 3
+    cmp r8, r7
+    bge el
+    bra tspin
+tmr_h:
+    csrw 0x140, r12
+    li r12, 0x40
+    sw r7, [r12, 0]
+    sw r9, [r12, 4]
+    csrr r7, 0x101
+    sw r7, [r12, 8]
+    addi r8, r8, 1
+    li r7, 0x54
+    sb r7, [r3, 0]
+    csrr r9, 0x14D
+    addi r9, r9, 3000
+    csrw 0x14D, r9
+    li r7, 0
+    csrw 0x144, r7
+    li r12, 0x40
+    lw r7, [r12, 8]
+    csrw 0x101, r7
+    lw r9, [r12, 4]
+    lw r7, [r12, 0]
+    csrr r12, 0x140
+    sret
 el:
     lbu r5, [r6, 0]
     tst r5, r5
