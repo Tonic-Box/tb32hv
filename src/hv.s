@@ -5,6 +5,8 @@ _start:
     csrw 0x605, r1
     li r1, 0x100
     csrw 0x602, r1
+    li r1, banner_hv
+    call puts
 
 manager:
     li r1, prompt
@@ -13,61 +15,154 @@ manager:
     lbu r2, [r1, 0]
     tst r2, r2
     beq m_quit
-    li r3, 0x72
-    cmp r2, r3
-    beq m_run
     li r3, 0x71
     cmp r2, r3
     beq m_quit
+    li r3, 0x6C
+    cmp r2, r3
+    beq m_list
+    li r3, 0x63
+    cmp r2, r3
+    beq m_create
+    li r3, 0x6B
+    cmp r2, r3
+    beq m_kill
+    li r3, 0x31
+    cmp r2, r3
+    beq m_att0
+    li r3, 0x32
+    cmp r2, r3
+    beq m_att1
     bra manager
-m_run:
-    li r1, running
-    call puts
-    call reset_vms
-    li r1, 0
-    bra h_enter
+
 m_quit:
     li r1, bye
     call puts
     hlt
 
+m_att0:
+    li r1, 0
+    bra m_attach
+m_att1:
+    li r1, 1
+m_attach:
+    li r2, 0x510
+    add r2, r2, r1
+    lbu r3, [r2, 0]
+    tst r3, r3
+    beq m_novm
+    li r2, 0x500
+    sw r1, [r2, 0]
+    li r1, attach
+    call puts
+    bra h_enter
+m_novm:
+    li r1, novm
+    call puts
+    bra manager
+
+m_create:
+    li r1, 0x510
+    lbu r2, [r1, 0]
+    tst r2, r2
+    beq c0
+    lbu r2, [r1, 1]
+    tst r2, r2
+    beq c1
+    li r1, full
+    call puts
+    bra manager
+c0:
+    li r1, 0
+    bra cdo
+c1:
+    li r1, 1
+cdo:
+    li r2, 0x510
+    add r2, r2, r1
+    li r3, 1
+    sb r3, [r2, 0]
+    call reset_vm
+    li r1, created
+    call puts
+    bra manager
+
+m_kill:
+    li r1, 0x10000004
+    lbu r2, [r1, 0]
+    li r3, 0x30
+    sub r2, r2, r3
+    li r1, 0x510
+    add r1, r1, r2
+    sb r0, [r1, 0]
+    li r1, killed
+    call puts
+    bra manager
+
+m_list:
+    li r1, lst0
+    call puts
+    li r5, 0x510
+    lbu r3, [r5, 0]
+    tst r3, r3
+    beq lf0
+    li r1, sact
+    call puts
+    bra l1
+lf0:
+    li r1, sfree
+    call puts
+l1:
+    li r1, lst1
+    call puts
+    lbu r3, [r5, 1]
+    tst r3, r3
+    beq lf1
+    li r1, sact
+    call puts
+    bra lend
+lf1:
+    li r1, sfree
+    call puts
+lend:
+    li r1, nl
+    call puts
+    bra manager
+
 puts:
     li r3, 0x10000000
-puts_l:
+putsl:
     lbu r4, [r1, 0]
     tst r4, r4
-    beq puts_d
+    beq putsd
     sb r4, [r3, 0]
     addi r1, r1, 1
-    bra puts_l
-puts_d:
+    bra putsl
+putsd:
     ret
 
-reset_vms:
-    li r1, 0x600
-    li r2, 0x700
-reset_z:
-    cmp r1, r2
-    bge reset_s
-    sw r0, [r1, 0]
-    addi r1, r1, 4
-    bra reset_z
-reset_s:
-    li r1, 0x1000
-    li r2, 3
-    li r3, 0x600
-    sw r1, [r3, 64]
-    sw r2, [r3, 76]
-    li r3, 0x680
-    sw r1, [r3, 64]
-    sw r2, [r3, 76]
-    li r3, 0x700
-    sw r0, [r3, 0]
+reset_vm:
+    slli r2, r1, 7
+    addi r2, r2, 0x600
+    li r3, 0
+rvz:
+    li r4, 96
+    cmp r3, r4
+    bge rvs
+    add r5, r2, r3
+    sw r0, [r5, 0]
+    addi r3, r3, 4
+    bra rvz
+rvs:
+    li r3, 0x1000
+    sw r3, [r2, 64]
+    li r3, 3
+    sw r3, [r2, 76]
     ret
 
 h_trap:
     csrw 0x640, r1
-    li r1, 0x700
+    li r1, 0x500
     lw r1, [r1, 0]
     slli r1, r1, 7
     addi r1, r1, 0x600
@@ -102,14 +197,10 @@ h_trap:
     sw r2, [r1, 88]
     csrr r2, 0x180
     sw r2, [r1, 92]
-
     csrr r3, 0x642
-    li r4, 0x80000005
-    cmp r3, r4
-    beq h_sched
     li r4, 10
     cmp r3, r4
-    beq h_dead
+    beq h_exit
     li r4, 23
     cmp r3, r4
     beq h_mmio
@@ -118,26 +209,47 @@ h_trap:
     beq h_mmio
     hlt
 
+h_exit:
+    li r2, 0x500
+    lw r2, [r2, 0]
+    li r3, 0x510
+    add r3, r3, r2
+    sb r0, [r3, 0]
+    li r1, vmexit
+    call puts
+    bra manager
+
 h_mmio:
-    csrr r5, 0x643
-    li r6, 0x10000000
-    cmp r5, r6
-    bne h_halt
     csrr r7, 0x64A
+    srli r10, r7, 25
+    li r11, 0x38
+    cmp r10, r11
+    bge h_tx
+    li r6, 0x10000004
+    lbu r12, [r6, 0]
+    li r6, 0x1D
+    cmp r12, r6
+    beq m_detach
     srli r8, r7, 21
     andi r8, r8, 0xF
     slli r9, r8, 2
     add r9, r1, r9
-    srli r10, r7, 25
-    li r11, 0x38
-    cmp r10, r11
-    bge h_st
-    sw r0, [r9, 0]
+    sw r12, [r9, 0]
     bra h_adv
-h_st:
+h_tx:
+    srli r8, r7, 21
+    andi r8, r8, 0xF
+    slli r9, r8, 2
+    add r9, r1, r9
     lw r12, [r9, 0]
     li r13, 0x10000000
     sb r12, [r13, 0]
+    bra h_adv
+m_detach:
+    li r1, detached
+    call puts
+    bra manager
+
 h_adv:
     lw r14, [r1, 64]
     addi r14, r14, 4
@@ -164,48 +276,14 @@ h_adv:
     lw r1, [r1, 4]
     hret
 
-h_sched:
-    li r1, 0x700
-    lw r1, [r1, 0]
-    xori r2, r1, 1
-    slli r3, r2, 7
-    addi r3, r3, 0x600
-    lw r4, [r3, 68]
-    tst r4, r4
-    bne h_enter
-    or r1, r2, r0
-    bra h_enter
-
-h_dead:
-    li r1, 0x700
-    lw r1, [r1, 0]
-    slli r2, r1, 7
-    addi r2, r2, 0x600
-    li r3, 1
-    sw r3, [r2, 68]
-    xori r4, r1, 1
-    slli r5, r4, 7
-    addi r5, r5, 0x600
-    lw r6, [r5, 68]
-    tst r6, r6
-    bne manager
-    or r1, r4, r0
-    bra h_enter
-
-h_halt:
-    hlt
-
 h_enter:
-    li r2, 0x700
-    sw r1, [r2, 0]
+    li r2, 0x500
+    lw r1, [r2, 0]
     slli r3, r1, 1
     addi r3, r3, 16
     li r4, 0x80000000
     or r3, r3, r4
     csrw 0x680, r3
-    csrr r5, 0x64D
-    addi r5, r5, 20
-    csrw 0x64D, r5
     slli r6, r1, 7
     addi r6, r6, 0x600
     lw r7, [r6, 64]
@@ -240,6 +318,18 @@ h_enter:
     hret
 
 .rodata
-prompt: .asciz "\ntb32hv> (r=run guests, q=quit) "
-running: .asciz "\nlaunching guests...\n"
+banner_hv: .asciz "\ntb32hv manager online\n"
 bye: .asciz "\nbye\n"
+prompt: .asciz "\ntb32hv> (l=list c=create k=kill N N=attach q=quit) "
+novm: .asciz "no such vm\n"
+full: .asciz "no free slot\n"
+created: .asciz "created\n"
+killed: .asciz "killed\n"
+attach: .asciz "\n[attached, ctrl-] to detach]\n"
+vmexit: .asciz "\n[vm exited]\n"
+detached: .asciz "\n[detached]\n"
+lst0: .asciz "vm0="
+lst1: .asciz " vm1="
+sact: .asciz "active"
+sfree: .asciz "free"
+nl: .asciz "\n"

@@ -1,67 +1,31 @@
 .text
 .entry _start
 _start:
-    li r1, 0x5000
-    li r2, 0x6001
-    sw r2, [r1, 0]
-    li r2, 0x7001
-    sw r2, [r1, 256]
-    li r1, 0x6000
-    li r2, 0x1F
-    sw r2, [r1, 0]
-    li r2, 0x100F
-    sw r2, [r1, 4]
-    li r2, 0x201F
-    sw r2, [r1, 8]
-    li r2, 0x301F
-    sw r2, [r1, 12]
-    li r1, 0x7000
-    li r2, 0x1000000F
-    sw r2, [r1, 0]
-    li r1, 0x80000005
-    csrw 0x180, r1
-    li r1, k_trap
-    csrw 0x105, r1
-    li r1, 0x2000
-    csrw 0x141, r1
-    csrw 0x100, r0
-    sret
-
-k_trap:
-    li r2, 2
-    cmp r7, r2
-    beq k_exit
-    li r2, 0x10000000
-    sb r1, [r2, 0]
-    csrr r2, 0x141
-    addi r2, r2, 4
-    csrw 0x141, r2
-    sret
-k_exit:
-    sys
-
-.align 0x1000
-user:
-    li r3, 0x100
-    lbu r4, [r3, 0]
-    addi r4, r4, 0x30
-    li r5, umsg
-uloop:
-    lbu r1, [r5, 0]
-    tst r1, r1
-    beq uid
-    li r7, 1
-    sys
-    addi r5, r5, 1
-    bra uloop
-uid:
-    or r1, r4, r0
-    li r7, 1
-    sys
-    li r1, 0x0A
-    li r7, 1
-    sys
-    li r7, 2
+    li r3, 0x10000000
+    li r6, 0x10000004
+    li r4, banner
+bl:
+    lbu r5, [r4, 0]
+    tst r5, r5
+    beq showid
+    sb r5, [r3, 0]
+    addi r4, r4, 1
+    bra bl
+showid:
+    li r7, 0x100
+    lbu r8, [r7, 0]
+    addi r8, r8, 0x30
+    sb r8, [r3, 0]
+    li r8, 0x0A
+    sb r8, [r3, 0]
+el:
+    lbu r5, [r6, 0]
+    li r7, 0x78
+    cmp r5, r7
+    beq ed
+    sb r5, [r3, 0]
+    bra el
+ed:
     sys
 .rodata
-umsg: .asciz "paged guest vm "
+banner: .asciz "vm "
