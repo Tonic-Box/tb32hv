@@ -30,11 +30,6 @@ partition no matter what its own page tables say.
 
 ## The TB32-V extension (in libtb32)
 
-TB32 gained an optional **virtualization extension, TB32-V**, in its reference implementation
-[libtb32](https://github.com/Tonic-Box/libtb32) - modeled on the RISC-V hypervisor extension. It
-is additive: the unprivileged core is unchanged, and a machine opts in by running the privileged
-executor. It adds:
-
 - **Privilege modes** U / S / H, plus a virtualization (V) bit giving guest **VS** and **VU**.
 - **Control/status registers** (`csrr`/`csrw`) for trap vectors, saved state, page-table bases,
   interrupt state, and the condition flags.
