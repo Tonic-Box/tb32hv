@@ -10,6 +10,7 @@ const GUEST_BASE: u32 = 0x100000; // first guest partition (past the HV image + 
 const PARTITION: u32 = 128 * 1024 * 1024; // per-guest physical RAM
 // Host RAM must hold every guest partition; the device window sits above it (machine.DEV_BASE).
 const RAM_SIZE: usize = GUEST_BASE + NVMS * PARTITION + 0x100000;
+const DISK_BLOCKS: u32 = 64; // virtual block-device size (later: the sealed FS image)
 
 const PTE_V: u32 = 1;
 const PTE_RWX: u32 = 2 | 4 | 8;
@@ -34,6 +35,11 @@ pub fn main() !void {
     defer gpa.free(ram);
     @memset(ram, 0);
 
+    const disk = try gpa.alloc(u8, DISK_BLOCKS * machine.BLOCK_SIZE);
+    defer gpa.free(disk);
+    @memset(disk, 0);
+    @memcpy(disk[0..6], "disk0\n"); // a recognizable label at block 0 until a real FS image is built
+
     const hv_img = try loader.load(ram, hv_tbx);
 
     var v: u32 = 0;
@@ -47,13 +53,16 @@ pub fn main() !void {
             .console_reg = machine.DEV_BASE + machine.CON_TX,
             .rtc_reg = machine.DEV_BASE + machine.RTC_SECS,
             .rng_reg = machine.DEV_BASE + machine.RNG_OUT,
+            .blk_reg = machine.DEV_BASE + machine.BLK_CAPACITY,
+            .disk_blocks = DISK_BLOCKS,
+            .block_size = machine.BLOCK_SIZE,
         });
         const root = S2_BASE + v * S2_STRIDE;
         var next = root + 0x1000;
         buildStage2(ram, root, &next, part);
     }
 
-    var m = machine.Machine{ .ram = ram, .epoch = @truncate(@as(u64, @intCast(std.time.timestamp()))) };
+    var m = machine.Machine{ .ram = ram, .disk = disk, .epoch = @truncate(@as(u64, @intCast(std.time.timestamp()))) };
     var hart = tb32.Hart{ .mode = .hypervisor };
     hart.cpu.pc = hv_img.entry;
 

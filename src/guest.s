@@ -71,7 +71,7 @@ rse:
 tspin:
     li r7, 3
     cmp r8, r7
-    bge el
+    bge dread
     bra tspin
 tmr_h:
     csrw 0x140, r12
@@ -95,6 +95,16 @@ tmr_h:
     lw r7, [r12, 0]
     csrr r12, 0x140
     sret
+dread:
+    li r7, 0x20000020
+    sw r0, [r7, 0]
+    li r9, 0x20000024
+dkl:
+    lbu r5, [r9, 0]
+    tst r5, r5
+    beq el
+    sb r5, [r3, 0]
+    bra dkl
 el:
     lbu r5, [r6, 0]
     tst r5, r5
