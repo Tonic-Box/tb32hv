@@ -33,6 +33,9 @@ manager:
     li r3, 0x32
     cmp r2, r3
     beq m_att1
+    li r3, 0x69
+    cmp r2, r3
+    beq m_info
     bra manager
 
 m_quit:
@@ -158,6 +161,47 @@ rvs:
     sw r3, [r2, 64]
     li r3, 3
     sw r3, [r2, 76]
+    ret
+
+m_info:
+    li r1, 0x10000004
+    lbu r2, [r1, 0]
+    li r3, 0x30
+    sub r2, r2, r3
+    or r8, r2, r0
+    li r1, infovm
+    call puts
+    addi r9, r8, 0x30
+    li r3, 0x10000000
+    sb r9, [r3, 0]
+    li r1, infopc
+    call puts
+    slli r2, r8, 7
+    addi r2, r2, 0x600
+    lw r1, [r2, 64]
+    call puthex
+    li r1, nl
+    call puts
+    bra manager
+
+puthex:
+    li r3, 0x10000000
+    li r4, 32
+ph_l:
+    addi r4, r4, -4
+    srl r5, r1, r4
+    andi r5, r5, 0xF
+    li r6, 10
+    cmp r5, r6
+    bge ph_hex
+    addi r5, r5, 0x30
+    bra ph_emit
+ph_hex:
+    addi r5, r5, 0x57
+ph_emit:
+    sb r5, [r3, 0]
+    tst r4, r4
+    bne ph_l
     ret
 
 h_trap:
@@ -332,4 +376,6 @@ lst0: .asciz "vm0="
 lst1: .asciz " vm1="
 sact: .asciz "active"
 sfree: .asciz "free"
+infovm: .asciz "vm"
+infopc: .asciz " pc=0x"
 nl: .asciz "\n"

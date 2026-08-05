@@ -20,6 +20,8 @@ showid:
     sb r8, [r3, 0]
 el:
     lbu r5, [r6, 0]
+    tst r5, r5
+    beq ed
     li r7, 0x78
     cmp r5, r7
     beq ed
