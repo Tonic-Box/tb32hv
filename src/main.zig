@@ -40,7 +40,12 @@ pub fn main() !void {
     while (v < NVMS) : (v += 1) {
         const part = GUEST_BASE + v * PARTITION;
         _ = try loader.load(ram[part..], guest_tbx);
-        ram[part + 0x100] = @intCast(v + 1);
+        loader.writeBootInfo(ram[part..], .{
+            .vm_id = v + 1,
+            .ram_size = PARTITION,
+            .mmio_base = machine.DEV_BASE,
+            .console_reg = machine.DEV_BASE,
+        });
         const root = S2_BASE + v * S2_STRIDE;
         var next = root + 0x1000;
         buildStage2(ram, root, &next, part);
