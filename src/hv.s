@@ -3,6 +3,8 @@
 _start:
     li r1, h_trap
     csrw 0x605, r1
+    li r1, 0x100
+    csrw 0x602, r1
     li r1, 0
     bra h_enter
 
@@ -33,6 +35,14 @@ h_trap:
     sw r2, [r1, 64]
     csrr r2, 0x101
     sw r2, [r1, 72]
+    csrr r2, 0x600
+    sw r2, [r1, 76]
+    csrr r2, 0x105
+    sw r2, [r1, 80]
+    csrr r2, 0x141
+    sw r2, [r1, 84]
+    csrr r2, 0x100
+    sw r2, [r1, 88]
 
     csrr r3, 0x642
     li r4, 0x80000005
@@ -74,7 +84,7 @@ h_adv:
     addi r14, r14, 4
     sw r14, [r1, 64]
     csrw 0x641, r14
-    li r2, 3
+    lw r2, [r1, 76]
     csrw 0x600, r2
     lw r2, [r1, 72]
     csrw 0x101, r2
@@ -141,10 +151,16 @@ h_enter:
     addi r6, r6, 0x600
     lw r7, [r6, 64]
     csrw 0x641, r7
+    lw r7, [r6, 76]
+    csrw 0x600, r7
+    lw r7, [r6, 80]
+    csrw 0x105, r7
+    lw r7, [r6, 84]
+    csrw 0x141, r7
+    lw r7, [r6, 88]
+    csrw 0x100, r7
     lw r7, [r6, 72]
     csrw 0x101, r7
-    li r7, 3
-    csrw 0x600, r7
     lw r1, [r6, 4]
     lw r2, [r6, 8]
     lw r3, [r6, 12]

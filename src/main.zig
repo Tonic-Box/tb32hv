@@ -42,6 +42,7 @@ pub fn main() !void {
         ram[part + 0x100] = @intCast(v + 1);
         buildStage2(ram, S2_BASE + v * 0x2000, part);
         putU32(ram, 0x600 + v * 0x80 + 64, 0x1000);
+        putU32(ram, 0x600 + v * 0x80 + 76, 3);
     }
 
     var m = machine.Machine{ .ram = ram };
