@@ -244,7 +244,24 @@ h_trap:
     csrr r3, 0x642
     li r4, 10
     cmp r3, r4
+    beq h_hcall
+    hlt
+
+h_hcall:
+    lw r5, [r1, 28]
+    tst r5, r5
     beq h_exit
+    li r4, 1
+    cmp r5, r4
+    beq h_poweroff
+    lw r5, [r1, 64]
+    addi r5, r5, 4
+    sw r5, [r1, 64]
+    bra h_enter
+
+h_poweroff:
+    li r1, poweroff
+    call puts
     hlt
 
 h_exit:
@@ -308,6 +325,7 @@ created: .asciz "created\n"
 killed: .asciz "killed\n"
 attach: .asciz "\n[attached]\n"
 vmexit: .asciz "\n[vm exited]\n"
+poweroff: .asciz "\n[power off]\n"
 lst0: .asciz "vm0="
 lst1: .asciz " vm1="
 sact: .asciz "active"

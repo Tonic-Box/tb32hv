@@ -102,9 +102,16 @@ dread:
 dkl:
     lbu r5, [r9, 0]
     tst r5, r5
-    beq el
+    beq hcy
     sb r5, [r3, 0]
     bra dkl
+hcy:
+    li r7, 0x59
+    sb r7, [r3, 0]
+    li r7, 2
+    sys
+    li r7, 0x0A
+    sb r7, [r3, 0]
 el:
     li r7, 0x20000030
     lbu r5, [r7, 0]
@@ -120,6 +127,7 @@ el:
     sb r5, [r3, 0]
     bra el
 ed:
+    li r7, 0
     sys
 .rodata
 banner: .asciz "vm "
