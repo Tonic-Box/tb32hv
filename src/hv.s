@@ -5,8 +5,65 @@ _start:
     csrw 0x605, r1
     li r1, 0x100
     csrw 0x602, r1
+
+manager:
+    li r1, prompt
+    call puts
+    li r1, 0x10000004
+    lbu r2, [r1, 0]
+    tst r2, r2
+    beq m_quit
+    li r3, 0x72
+    cmp r2, r3
+    beq m_run
+    li r3, 0x71
+    cmp r2, r3
+    beq m_quit
+    bra manager
+m_run:
+    li r1, running
+    call puts
+    call reset_vms
     li r1, 0
     bra h_enter
+m_quit:
+    li r1, bye
+    call puts
+    hlt
+
+puts:
+    li r3, 0x10000000
+puts_l:
+    lbu r4, [r1, 0]
+    tst r4, r4
+    beq puts_d
+    sb r4, [r3, 0]
+    addi r1, r1, 1
+    bra puts_l
+puts_d:
+    ret
+
+reset_vms:
+    li r1, 0x600
+    li r2, 0x700
+reset_z:
+    cmp r1, r2
+    bge reset_s
+    sw r0, [r1, 0]
+    addi r1, r1, 4
+    bra reset_z
+reset_s:
+    li r1, 0x1000
+    li r2, 3
+    li r3, 0x600
+    sw r1, [r3, 64]
+    sw r2, [r3, 76]
+    li r3, 0x680
+    sw r1, [r3, 64]
+    sw r2, [r3, 76]
+    li r3, 0x700
+    sw r0, [r3, 0]
+    ret
 
 h_trap:
     csrw 0x640, r1
@@ -131,7 +188,7 @@ h_dead:
     addi r5, r5, 0x600
     lw r6, [r5, 68]
     tst r6, r6
-    bne h_halt
+    bne manager
     or r1, r4, r0
     bra h_enter
 
@@ -181,3 +238,8 @@ h_enter:
     lw r15, [r6, 60]
     lw r6, [r6, 24]
     hret
+
+.rodata
+prompt: .asciz "\ntb32hv> (r=run guests, q=quit) "
+running: .asciz "\nlaunching guests...\n"
+bye: .asciz "\nbye\n"
