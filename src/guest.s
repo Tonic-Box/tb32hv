@@ -1,9 +1,28 @@
 .text
 .entry _start
 _start:
+    li r1, 0x5000
+    li r2, 0x6001
+    sw r2, [r1, 0]
+    li r2, 0x7001
+    sw r2, [r1, 256]
+    li r1, 0x6000
+    li r2, 0x1F
+    sw r2, [r1, 0]
+    li r2, 0x100F
+    sw r2, [r1, 4]
+    li r2, 0x201F
+    sw r2, [r1, 8]
+    li r2, 0x301F
+    sw r2, [r1, 12]
+    li r1, 0x7000
+    li r2, 0x1000000F
+    sw r2, [r1, 0]
+    li r1, 0x80000005
+    csrw 0x180, r1
     li r1, k_trap
     csrw 0x105, r1
-    li r1, user
+    li r1, 0x2000
     csrw 0x141, r1
     csrw 0x100, r0
     sret
@@ -21,6 +40,7 @@ k_trap:
 k_exit:
     sys
 
+.align 0x1000
 user:
     li r3, 0x100
     lbu r4, [r3, 0]
@@ -44,4 +64,4 @@ uid:
     li r7, 2
     sys
 .rodata
-umsg: .asciz "guest OS syscall from vm "
+umsg: .asciz "paged guest vm "

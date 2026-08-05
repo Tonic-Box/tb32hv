@@ -43,6 +43,8 @@ h_trap:
     sw r2, [r1, 84]
     csrr r2, 0x100
     sw r2, [r1, 88]
+    csrr r2, 0x180
+    sw r2, [r1, 92]
 
     csrr r3, 0x642
     li r4, 0x80000005
@@ -159,6 +161,8 @@ h_enter:
     csrw 0x141, r7
     lw r7, [r6, 88]
     csrw 0x100, r7
+    lw r7, [r6, 92]
+    csrw 0x180, r7
     lw r7, [r6, 72]
     csrw 0x101, r7
     lw r1, [r6, 4]
