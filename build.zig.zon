@@ -4,8 +4,8 @@
     .minimum_zig_version = "0.13.0",
     .dependencies = .{
         .tb32 = .{
-            .url = "git+https://github.com/Tonic-Box/libtb32#31c19c9129b4abd182f4b3638fd6e0cb24749cde",
-            .hash = "122011ae8198628eec529d0826c3526b0f06a4512ab1b73a04a51956c0475a020282",
+            .url = "git+https://github.com/Tonic-Box/libtb32#77661afd891d2fbebdc940dcf3c69e16ecfa277b",
+            .hash = "1220c735eb9eb116947daa66c273371dd773a7551075727212c88eca32dfd958645c",
         },
     },
     .paths = .{

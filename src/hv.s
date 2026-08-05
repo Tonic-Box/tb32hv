@@ -1,19 +1,17 @@
 .text
 .entry _start
 _start:
-    li r1, 0x80000010
-    csrw 0x680, r1
     li r1, h_trap
     csrw 0x605, r1
-    li r1, 0x1000
-    csrw 0x641, r1
-    li r1, 3
-    csrw 0x600, r1
-    hret
+    li r1, 0
+    bra h_enter
 
 h_trap:
     csrw 0x640, r1
-    li r1, 0x800
+    li r1, 0x700
+    lw r1, [r1, 0]
+    slli r1, r1, 7
+    addi r1, r1, 0x600
     sw r0, [r1, 0]
     sw r2, [r1, 8]
     sw r3, [r1, 12]
@@ -31,39 +29,24 @@ h_trap:
     sw r15, [r1, 60]
     csrr r2, 0x640
     sw r2, [r1, 4]
+    csrr r2, 0x641
+    sw r2, [r1, 64]
+    csrr r2, 0x101
+    sw r2, [r1, 72]
 
     csrr r3, 0x642
+    li r4, 0x80000005
+    cmp r3, r4
+    beq h_sched
     li r4, 10
     cmp r3, r4
-    beq h_exit
+    beq h_dead
     li r4, 23
     cmp r3, r4
     beq h_mmio
     li r4, 21
     cmp r3, r4
     beq h_mmio
-    hlt
-
-h_exit:
-    li r1, 0x700
-    lw r2, [r1, 0]
-    addi r2, r2, 1
-    li r3, 2
-    cmp r2, r3
-    bge h_halt
-    sw r2, [r1, 0]
-    slli r4, r2, 1
-    addi r4, r4, 16
-    li r5, 0x80000000
-    or r4, r4, r5
-    csrw 0x680, r4
-    li r4, 0x1000
-    csrw 0x641, r4
-    li r4, 3
-    csrw 0x600, r4
-    hret
-
-h_halt:
     hlt
 
 h_mmio:
@@ -74,26 +57,27 @@ h_mmio:
     csrr r7, 0x64A
     srli r8, r7, 21
     andi r8, r8, 0xF
-    slli r8, r8, 2
-    li r11, 0x800
-    add r11, r11, r8
-    srli r9, r7, 25
-    li r10, 0x38
-    cmp r9, r10
-    bge h_store
-    sw r0, [r11, 0]
-    bra h_advance
-h_store:
-    lw r12, [r11, 0]
+    slli r9, r8, 2
+    add r9, r1, r9
+    srli r10, r7, 25
+    li r11, 0x38
+    cmp r10, r11
+    bge h_st
+    sw r0, [r9, 0]
+    bra h_adv
+h_st:
+    lw r12, [r9, 0]
     li r13, 0x10000000
     sb r12, [r13, 0]
-h_advance:
-    csrr r14, 0x641
+h_adv:
+    lw r14, [r1, 64]
     addi r14, r14, 4
+    sw r14, [r1, 64]
     csrw 0x641, r14
-
-h_restore:
-    li r1, 0x800
+    li r2, 3
+    csrw 0x600, r2
+    lw r2, [r1, 72]
+    csrw 0x101, r2
     lw r2, [r1, 8]
     lw r3, [r1, 12]
     lw r4, [r1, 16]
@@ -109,4 +93,71 @@ h_restore:
     lw r14, [r1, 56]
     lw r15, [r1, 60]
     lw r1, [r1, 4]
+    hret
+
+h_sched:
+    li r1, 0x700
+    lw r1, [r1, 0]
+    xori r2, r1, 1
+    slli r3, r2, 7
+    addi r3, r3, 0x600
+    lw r4, [r3, 68]
+    tst r4, r4
+    bne h_enter
+    or r1, r2, r0
+    bra h_enter
+
+h_dead:
+    li r1, 0x700
+    lw r1, [r1, 0]
+    slli r2, r1, 7
+    addi r2, r2, 0x600
+    li r3, 1
+    sw r3, [r2, 68]
+    xori r4, r1, 1
+    slli r5, r4, 7
+    addi r5, r5, 0x600
+    lw r6, [r5, 68]
+    tst r6, r6
+    bne h_halt
+    or r1, r4, r0
+    bra h_enter
+
+h_halt:
+    hlt
+
+h_enter:
+    li r2, 0x700
+    sw r1, [r2, 0]
+    slli r3, r1, 1
+    addi r3, r3, 16
+    li r4, 0x80000000
+    or r3, r3, r4
+    csrw 0x680, r3
+    csrr r5, 0x64D
+    addi r5, r5, 20
+    csrw 0x64D, r5
+    slli r6, r1, 7
+    addi r6, r6, 0x600
+    lw r7, [r6, 64]
+    csrw 0x641, r7
+    lw r7, [r6, 72]
+    csrw 0x101, r7
+    li r7, 3
+    csrw 0x600, r7
+    lw r1, [r6, 4]
+    lw r2, [r6, 8]
+    lw r3, [r6, 12]
+    lw r4, [r6, 16]
+    lw r5, [r6, 20]
+    lw r7, [r6, 28]
+    lw r8, [r6, 32]
+    lw r9, [r6, 36]
+    lw r10, [r6, 40]
+    lw r11, [r6, 44]
+    lw r12, [r6, 48]
+    lw r13, [r6, 52]
+    lw r14, [r6, 56]
+    lw r15, [r6, 60]
+    lw r6, [r6, 24]
     hret

@@ -41,6 +41,7 @@ pub fn main() !void {
         _ = try loader.load(ram[part..], guest_tbx);
         ram[part + 0x100] = @intCast(v + 1);
         buildStage2(ram, S2_BASE + v * 0x2000, part);
+        putU32(ram, 0x600 + v * 0x80 + 64, 0x1000);
     }
 
     var m = machine.Machine{ .ram = ram };
@@ -73,7 +74,7 @@ fn putU32(ram: []u8, addr: u32, v: u32) void {
 fn run(hart: *tb32.Hart, m: *machine.Machine) void {
     var guard: u64 = 0;
     while (guard < 1_000_000_000) : (guard += 1) {
-        hart.time +%= 1;
+        if (hart.v) hart.time +%= 1;
         switch (tb32.stepV(hart, m)) {
             .ok => {},
             .halt => break,
