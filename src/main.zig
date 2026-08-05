@@ -62,7 +62,11 @@ pub fn main() !void {
         buildStage2(ram, root, &next, part);
     }
 
-    var m = machine.Machine{ .ram = ram, .disk = disk, .epoch = @truncate(@as(u64, @intCast(std.time.timestamp()))) };
+    var console = machine.Console{};
+    const reader = try std.Thread.spawn(.{}, machine.Console.readerLoop, .{&console});
+    reader.detach();
+
+    var m = machine.Machine{ .ram = ram, .disk = disk, .console = &console, .epoch = @truncate(@as(u64, @intCast(std.time.timestamp()))) };
     var hart = tb32.Hart{ .mode = .hypervisor };
     hart.cpu.pc = hv_img.entry;
 

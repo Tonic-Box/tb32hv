@@ -22,8 +22,58 @@ pub const BLK_BLOCKSIZE: u32 = 0x1C; // bytes per block (read-only)
 pub const BLK_LBA: u32 = 0x20; // select a block; a write resets the byte cursor to 0
 pub const BLK_DATA: u32 = 0x24; // read/write the selected block's bytes in sequence (auto-advances)
 pub const BLK_STATUS: u32 = 0x28; // 0 = ok, 1 = the cursor is past the end of the disk (read-only)
+pub const CON_RXDATA: u32 = 0x2C; // non-blocking: next input byte, or 0 if none is waiting
+pub const CON_RXSTATUS: u32 = 0x30; // 1 if an input byte is waiting, else 0
+pub const CON_ROWS: u32 = 0x34; // terminal height (read-only)
+pub const CON_COLS: u32 = 0x38; // terminal width (read-only)
 
 pub const BLOCK_SIZE: u32 = 4096;
+
+/// A thread-safe byte ring the background reader fills from host stdin, so the guest can poll
+/// for input (CON_RXSTATUS/CON_RXDATA) without blocking the whole VM, and the HV manager can
+/// still block on it (CON_RX). Also carries the terminal size.
+pub const Console = struct {
+    ring: [4096]u8 = undefined,
+    head: usize = 0,
+    tail: usize = 0,
+    mutex: std.Thread.Mutex = .{},
+    rows: u32 = 24,
+    cols: u32 = 80,
+
+    pub fn push(self: *Console, b: u8) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.head - self.tail < self.ring.len) {
+            self.ring[self.head % self.ring.len] = b;
+            self.head += 1;
+        }
+    }
+
+    pub fn tryPop(self: *Console) ?u8 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.head == self.tail) return null;
+        const b = self.ring[self.tail % self.ring.len];
+        self.tail += 1;
+        return b;
+    }
+
+    pub fn available(self: *Console) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.head != self.tail;
+    }
+
+    /// Feed host stdin into the ring until end of input. Run on a background thread so the CPU
+    /// loop never blocks on a read.
+    pub fn readerLoop(self: *Console) void {
+        const in = std.io.getStdIn().reader();
+        while (true) {
+            const b = in.readByte() catch return;
+            self.push(b);
+        }
+    }
+};
 
 fn xorshift32(x: u32) u32 {
     var v = x;
@@ -46,6 +96,7 @@ pub const Machine = struct {
     blk_lba: u32 = 0,
     blk_off: u32 = 0,
     blk_status: u32 = 0,
+    console: ?*Console = null, // background-filled input ring + terminal size (null in tests)
 
     pub fn read8(self: *Machine, a: u32) ?u8 {
         if (a >= DEV_BASE and a < DEV_BASE + DEV_SIZE) return self.devRead(a - DEV_BASE);
@@ -63,9 +114,25 @@ pub const Machine = struct {
     }
 
     fn devRead(self: *Machine, off: u32) u8 {
-        if (off == CON_RX) return std.io.getStdIn().reader().readByte() catch 0;
+        if (off == CON_RX) {
+            // blocking read, used by the HV manager: wait for a byte from the input ring.
+            if (self.console) |c| {
+                while (true) {
+                    if (c.tryPop()) |b| return b;
+                    std.time.sleep(std.time.ns_per_ms);
+                }
+            }
+            return 0;
+        }
         const shift: u5 = @intCast((off & 3) * 8);
         return switch (off & ~@as(u32, 3)) {
+            CON_RXDATA => if (off & 3 == 0) (if (self.console) |c| (c.tryPop() orelse 0) else 0) else 0,
+            CON_RXSTATUS => blk: {
+                const avail: u32 = if (self.console) |c| (if (c.available()) 1 else 0) else 0;
+                break :blk @truncate(avail >> shift);
+            },
+            CON_ROWS => if (self.console) |c| @truncate(c.rows >> shift) else 0,
+            CON_COLS => if (self.console) |c| @truncate(c.cols >> shift) else 0,
             RTC_SECS => @truncate(self.rtc_secs >> shift),
             RTC_MS => @truncate(self.rtc_ms >> shift),
             RNG_OUT => blk: {
@@ -178,4 +245,22 @@ test "block device reports geometry, streams a selected block, and writes back" 
     _ = m.devWrite(BLK_DATA, 'Q');
     try std.testing.expectEqual(@as(u8, 'Q'), disk[BLOCK_SIZE]);
     try std.testing.expectEqual(@as(u32, 0), readWord(&m, BLK_STATUS));
+}
+
+test "console ring and non-blocking status/data + winsize registers" {
+    var con = Console{ .rows = 40, .cols = 100 };
+    var m = Machine{ .ram = &[_]u8{}, .console = &con };
+    // no input yet: status 0, data 0
+    try std.testing.expectEqual(@as(u8, 0), m.devRead(CON_RXSTATUS));
+    try std.testing.expectEqual(@as(u8, 0), m.devRead(CON_RXDATA));
+    // the reader thread would push bytes; simulate it here.
+    con.push('h');
+    con.push('i');
+    try std.testing.expectEqual(@as(u8, 1), m.devRead(CON_RXSTATUS));
+    try std.testing.expectEqual(@as(u8, 'h'), m.devRead(CON_RXDATA));
+    try std.testing.expectEqual(@as(u8, 'i'), m.devRead(CON_RXDATA));
+    try std.testing.expectEqual(@as(u8, 0), m.devRead(CON_RXSTATUS));
+    // terminal size is readable.
+    try std.testing.expectEqual(@as(u32, 40), readWord(&m, CON_ROWS));
+    try std.testing.expectEqual(@as(u32, 100), readWord(&m, CON_COLS));
 }

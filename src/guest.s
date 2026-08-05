@@ -106,7 +106,12 @@ dkl:
     sb r5, [r3, 0]
     bra dkl
 el:
-    lbu r5, [r6, 0]
+    li r7, 0x20000030
+    lbu r5, [r7, 0]
+    tst r5, r5
+    beq el
+    li r7, 0x2000002C
+    lbu r5, [r7, 0]
     tst r5, r5
     beq ed
     li r7, 0x78
