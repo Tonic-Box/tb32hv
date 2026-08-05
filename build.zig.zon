@@ -1,0 +1,17 @@
+.{
+    .name = "tb32hv",
+    .version = "0.0.0",
+    .minimum_zig_version = "0.13.0",
+    .dependencies = .{
+        .tb32 = .{
+            .url = "git+https://github.com/Tonic-Box/libtb32#dba0a6455f23a23794e328d37621ccedc68eb0bf",
+            .hash = "122071a0f67a235288ba418c0a5986b118dd464468083303e21bfd9e90e3901b2a01",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}
