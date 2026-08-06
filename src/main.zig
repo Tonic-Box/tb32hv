@@ -38,10 +38,15 @@ pub fn main() !void {
     defer std.process.argsFree(gpa, args);
     var ext_kernel: ?[]u8 = null;
     defer if (ext_kernel) |k| gpa.free(k);
+    var ext_disk: ?[]u8 = null;
+    defer if (ext_disk) |d| gpa.free(d);
     var ai: usize = 1;
     while (ai < args.len) : (ai += 1) {
         if (std.mem.eql(u8, args[ai], "--kernel") and ai + 1 < args.len) {
             ext_kernel = try std.fs.cwd().readFileAlloc(gpa, args[ai + 1], 64 * 1024 * 1024);
+            ai += 1;
+        } else if (std.mem.eql(u8, args[ai], "--disk") and ai + 1 < args.len) {
+            ext_disk = try std.fs.cwd().readFileAlloc(gpa, args[ai + 1], 64 * 1024 * 1024);
             ai += 1;
         }
     }
@@ -54,7 +59,12 @@ pub fn main() !void {
     const disk = try gpa.alloc(u8, DISK_BLOCKS * machine.BLOCK_SIZE);
     defer gpa.free(disk);
     @memset(disk, 0);
-    @memcpy(disk[0..6], "disk0\n"); // a recognizable label at block 0 until a real FS image is built
+    if (ext_disk) |d| {
+        const n = @min(d.len, disk.len);
+        @memcpy(disk[0..n], d[0..n]);
+    } else {
+        @memcpy(disk[0..6], "disk0\n"); // a recognizable label until a real FS image is provided
+    }
 
     const hv_img = try loader.load(ram, hv_tbx);
 
