@@ -25,11 +25,9 @@ pub fn main() !void {
         return e;
     };
     defer gpa.free(hv_tbx);
-    const guest_tbx = tb32.assembleDiag(gpa, @embedFile("guest.s"), &diag) catch |e| {
-        std.debug.print("tb32hv: guest image failed to assemble: line {d}: {s}\n", .{ diag.line, diag.message });
-        return e;
-    };
-    defer gpa.free(guest_tbx);
+    // The guest is the TB32 kernel image (freestanding C + boot asm), pre-built by
+    // kernel/build.sh (which copies kernel.tbx into src/ for embedding).
+    const guest_tbx = @embedFile("kernel.tbx");
 
     const ram = try gpa.alloc(u8, RAM_SIZE);
     defer gpa.free(ram);
