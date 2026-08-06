@@ -25,9 +25,27 @@ pub fn main() !void {
         return e;
     };
     defer gpa.free(hv_tbx);
-    // The guest is the TB32 kernel image (freestanding C + boot asm), pre-built by
-    // kernel/build.sh (which copies kernel.tbx into src/ for embedding).
-    const guest_tbx = @embedFile("kernel.tbx");
+
+    // The default guest is the bundled reference OS (guest.s) that exercises the platform.
+    // `--kernel <path>` instead loads an external guest kernel image (a .tbx built elsewhere,
+    // e.g. the closed TonicBoxOS kernel), mirroring how the wasm host will supply it.
+    const ref_guest = tb32.assembleDiag(gpa, @embedFile("guest.s"), &diag) catch |e| {
+        std.debug.print("tb32hv: reference guest failed to assemble: line {d}: {s}\n", .{ diag.line, diag.message });
+        return e;
+    };
+    defer gpa.free(ref_guest);
+    const args = try std.process.argsAlloc(gpa);
+    defer std.process.argsFree(gpa, args);
+    var ext_kernel: ?[]u8 = null;
+    defer if (ext_kernel) |k| gpa.free(k);
+    var ai: usize = 1;
+    while (ai < args.len) : (ai += 1) {
+        if (std.mem.eql(u8, args[ai], "--kernel") and ai + 1 < args.len) {
+            ext_kernel = try std.fs.cwd().readFileAlloc(gpa, args[ai + 1], 64 * 1024 * 1024);
+            ai += 1;
+        }
+    }
+    const guest_tbx: []const u8 = ext_kernel orelse ref_guest;
 
     const ram = try gpa.alloc(u8, RAM_SIZE);
     defer gpa.free(ram);

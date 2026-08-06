@@ -3,7 +3,7 @@
 _start:
     li r1, h_trap
     csrw 0x605, r1
-    li r1, 0x100
+    li r1, 0xB100
     csrw 0x602, r1
     li r1, banner_hv
     call puts
