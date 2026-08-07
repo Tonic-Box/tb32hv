@@ -10,7 +10,7 @@ const GUEST_BASE: u32 = 0x100000; // first guest partition (past the HV image + 
 const PARTITION: u32 = 128 * 1024 * 1024; // per-guest physical RAM
 // Host RAM must hold every guest partition; the device window sits above it (machine.DEV_BASE).
 const RAM_SIZE: usize = GUEST_BASE + NVMS * PARTITION + 0x100000;
-const DISK_BLOCKS: u32 = 64; // virtual block-device size (later: the sealed FS image)
+const DISK_BLOCKS: u32 = 1024; // virtual block-device size (later: the sealed FS image)
 
 const PTE_V: u32 = 1;
 const PTE_RWX: u32 = 2 | 4 | 8;

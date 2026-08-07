@@ -1,5 +1,9 @@
 const std = @import("std");
 
+/// True when built for a host with stdio/threads (native); false for wasm32-freestanding. Guards
+/// host-only I/O so it is not analyzed (and does not pull in std.posix) in the wasm build.
+const native = @import("builtin").os.tag != .freestanding;
+
 /// Base of the host-physical device window. The hypervisor maps this range into each guest's
 /// stage-2 (at the same guest-physical address), so guest MMIO is decoded here directly rather
 /// than trapping to the hypervisor. It sits above host RAM, so a plain RAM access never reaches
@@ -26,6 +30,9 @@ pub const CON_RXDATA: u32 = 0x2C; // non-blocking: next input byte, or 0 if none
 pub const CON_RXSTATUS: u32 = 0x30; // 1 if an input byte is waiting, else 0
 pub const CON_ROWS: u32 = 0x34; // terminal height (read-only)
 pub const CON_COLS: u32 = 0x38; // terminal width (read-only)
+pub const YIELD: u32 = 0x3C; // a write parks the CPU loop (the guest is idle-waiting for input)
+pub const FG_EUID: u32 = 0x40; // the guest publishes the current process euid here (host introspection)
+pub const INTROSPECT: u32 = 0x44; // the guest publishes the guest-physical addr of its introspection buffer
 
 pub const BLOCK_SIZE: u32 = 4096;
 
@@ -97,6 +104,25 @@ pub const Machine = struct {
     blk_off: u32 = 0,
     blk_status: u32 = 0,
     console: ?*Console = null, // background-filled input ring + terminal size (null in tests)
+    // wasm-mode single-threaded I/O (no host stdio/threads): TX capture, input ring, idle flag.
+    wasm: bool = false,
+    out_buf: [1 << 16]u8 = undefined,
+    out_n: u32 = 0,
+    in_ring: [8192]u8 = undefined,
+    in_head: u32 = 0,
+    in_tail: u32 = 0,
+    yielded: bool = false,
+    fg_euid_val: u32 = 0,
+    introspect_gpa: u32 = 0,
+    win_rows: u32 = 24,
+    win_cols: u32 = 80,
+
+    pub fn wasmPush(self: *Machine, b: u8) void {
+        if (self.in_head - self.in_tail < self.in_ring.len) {
+            self.in_ring[self.in_head % self.in_ring.len] = b;
+            self.in_head += 1;
+        }
+    }
 
     pub fn read8(self: *Machine, a: u32) ?u8 {
         if (a >= DEV_BASE and a < DEV_BASE + DEV_SIZE) return self.devRead(a - DEV_BASE);
@@ -113,26 +139,71 @@ pub const Machine = struct {
         return false;
     }
 
+    /// Word accesses translate once (the caller guarantees the 4 bytes lie in one page). RAM is read/
+    /// written as a whole word; the device window keeps byte-at-a-time semantics (streaming ports,
+    /// register latches) by decomposing into the byte handlers.
+    pub fn read32(self: *Machine, a: u32) ?u32 {
+        if (a >= DEV_BASE and a < DEV_BASE + DEV_SIZE) {
+            const o = a - DEV_BASE;
+            return @as(u32, self.devRead(o)) | (@as(u32, self.devRead(o + 1)) << 8) | (@as(u32, self.devRead(o + 2)) << 16) | (@as(u32, self.devRead(o + 3)) << 24);
+        }
+        if (a + 4 <= self.ram.len) {
+            return @as(u32, self.ram[a]) | (@as(u32, self.ram[a + 1]) << 8) | (@as(u32, self.ram[a + 2]) << 16) | (@as(u32, self.ram[a + 3]) << 24);
+        }
+        return null;
+    }
+
+    pub fn write32(self: *Machine, a: u32, v: u32) bool {
+        if (a >= DEV_BASE and a < DEV_BASE + DEV_SIZE) {
+            const o = a - DEV_BASE;
+            _ = self.devWrite(o, @truncate(v));
+            _ = self.devWrite(o + 1, @truncate(v >> 8));
+            _ = self.devWrite(o + 2, @truncate(v >> 16));
+            return self.devWrite(o + 3, @truncate(v >> 24));
+        }
+        if (a + 4 <= self.ram.len) {
+            self.ram[a] = @truncate(v);
+            self.ram[a + 1] = @truncate(v >> 8);
+            self.ram[a + 2] = @truncate(v >> 16);
+            self.ram[a + 3] = @truncate(v >> 24);
+            return true;
+        }
+        return false;
+    }
+
     fn devRead(self: *Machine, off: u32) u8 {
         if (off == CON_RX) {
+            if (self.wasm) {
+                if (self.in_head == self.in_tail) return 0;
+                const b = self.in_ring[self.in_tail % self.in_ring.len];
+                self.in_tail += 1;
+                return b;
+            }
             // blocking read, used by the HV manager: wait for a byte from the input ring.
-            if (self.console) |c| {
-                while (true) {
-                    if (c.tryPop()) |b| return b;
-                    std.time.sleep(std.time.ns_per_ms);
+            if (comptime native) {
+                if (self.console) |c| {
+                    while (true) {
+                        if (c.tryPop()) |b| return b;
+                        std.time.sleep(std.time.ns_per_ms);
+                    }
                 }
             }
             return 0;
         }
         const shift: u5 = @intCast((off & 3) * 8);
         return switch (off & ~@as(u32, 3)) {
-            CON_RXDATA => if (off & 3 == 0) (if (self.console) |c| (c.tryPop() orelse 0) else 0) else 0,
+            CON_RXDATA => if (off & 3 != 0) 0 else if (self.wasm) blk: {
+                if (self.in_head == self.in_tail) break :blk 0;
+                const b = self.in_ring[self.in_tail % self.in_ring.len];
+                self.in_tail += 1;
+                break :blk b;
+            } else (if (self.console) |c| (c.tryPop() orelse 0) else 0),
             CON_RXSTATUS => blk: {
-                const avail: u32 = if (self.console) |c| (if (c.available()) 1 else 0) else 0;
+                const avail: u32 = if (self.wasm) (if (self.in_head != self.in_tail) 1 else 0) else if (self.console) |c| (if (c.available()) 1 else 0) else 0;
                 break :blk @truncate(avail >> shift);
             },
-            CON_ROWS => if (self.console) |c| @truncate(c.rows >> shift) else 0,
-            CON_COLS => if (self.console) |c| @truncate(c.cols >> shift) else 0,
+            CON_ROWS => if (self.wasm) @truncate(self.win_rows >> shift) else if (self.console) |c| @truncate(c.rows >> shift) else 0,
+            CON_COLS => if (self.wasm) @truncate(self.win_cols >> shift) else if (self.console) |c| @truncate(c.cols >> shift) else 0,
             RTC_SECS => @truncate(self.rtc_secs >> shift),
             RTC_MS => @truncate(self.rtc_ms >> shift),
             RNG_OUT => blk: {
@@ -163,11 +234,28 @@ pub const Machine = struct {
 
     fn devWrite(self: *Machine, off: u32, v: u8) bool {
         if (off == CON_TX) {
-            std.io.getStdOut().writer().writeByte(v) catch {};
+            if (self.wasm) {
+                if (self.out_n < self.out_buf.len) {
+                    self.out_buf[self.out_n] = v;
+                    self.out_n += 1;
+                }
+            } else if (comptime native) std.io.getStdOut().writer().writeByte(v) catch {};
+            return true;
+        }
+        if (off == YIELD) {
+            self.yielded = true;
             return true;
         }
         const shift: u5 = @intCast((off & 3) * 8);
         switch (off & ~@as(u32, 3)) {
+            FG_EUID => {
+                const mask = ~(@as(u32, 0xFF) << shift);
+                self.fg_euid_val = (self.fg_euid_val & mask) | (@as(u32, v) << shift);
+            },
+            INTROSPECT => {
+                const mask = ~(@as(u32, 0xFF) << shift);
+                self.introspect_gpa = (self.introspect_gpa & mask) | (@as(u32, v) << shift);
+            },
             RNG_SEED => {
                 const mask = ~(@as(u32, 0xFF) << shift);
                 self.rng_state = (self.rng_state & mask) | (@as(u32, v) << shift);

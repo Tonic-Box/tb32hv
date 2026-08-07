@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TonicBoxOS - hypervisor-hosted</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0e14; color: #c8d0e0; font: 14px/1.35 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace; }
+  #wrap { display: flex; flex-direction: column; height: 100%; }
+  header { padding: 8px 12px; border-bottom: 1px solid #1c2333; color: #7f8ba3; font-size: 12px; }
+  header b { color: #a6b3d0; }
+  #term { flex: 1; margin: 0; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; overflow-y: auto; outline: none; }
+  #term::selection { background: #2a3550; }
+  .cursor { background: #c8d0e0; color: #0b0e14; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    TonicBoxOS running as a de-privileged guest under <b>tb32hv</b> (Type-1 hypervisor), compiled to WebAssembly. Click the terminal and type. Login: <b>tonic</b>/<b>tonic</b> or <b>root</b>/<b>toor</b>.
+    <span style="float:right">
+      <label><input type="checkbox" id="persist"> persist disk (this browser)</label>
+      <button id="wipe" style="background:#1c2333;color:#c8d0e0;border:1px solid #2a3550;border-radius:3px;cursor:pointer">wipe</button>
+    </span>
+  </header>
+  <pre id="term" tabindex="0">booting...</pre>
+</div>
+<script>
+(async function () {
+  const termEl = document.getElementById("term");
+  const dec = new TextDecoder();
+  const { instance } = await WebAssembly.instantiate(await (await fetch("tb32hv.wasm")).arrayBuffer(), {});
+  const x = instance.exports;
+
+  // The kernel does its own line discipline (echo, erase), so the page renders TX verbatim and
+  // sends raw keystrokes. \b pops the last rendered char (the kernel sends "\b \b" to erase).
+  let screen = "";
+  function render() { termEl.textContent = screen; termEl.scrollTop = termEl.scrollHeight; }
+  function flush() {
+    const n = x.out_len();
+    if (!n) return;
+    const bytes = new Uint8Array(x.memory.buffer, x.out_ptr(), n);
+    for (let i = 0; i < n; i++) {
+      const c = bytes[i];
+      if (c === 8) screen = screen.slice(0, -1);        // backspace
+      else if (c === 13) {}                             // ignore CR
+      else if (c === 9) screen += "  ";                 // tab -> spaces
+      else if (c >= 32 || c === 10) screen += dec.decode(bytes.subarray(i, i + 1));
+    }
+    x.out_reset();
+    render();
+  }
+
+  function push(bytes) {
+    const buf = new Uint8Array(x.memory.buffer, x.image_ptr(), bytes.length);
+    buf.set(bytes);
+    x.stdin_push(bytes.length);
+  }
+
+  // ---- optional per-browser disk persistence (IndexedDB) ----
+  function idb() { return new Promise((res, rej) => { const r = indexedDB.open("tonicbox", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+  async function idbGet(k) { const db = await idb(); return new Promise((res) => { const t = db.transaction("kv").objectStore("kv").get(k); t.onsuccess = () => res(t.result || null); t.onerror = () => res(null); }); }
+  async function idbPut(k, v) { const db = await idb(); return new Promise((res) => { const t = db.transaction("kv", "readwrite").objectStore("kv").put(v, k); t.onsuccess = () => res(); t.onerror = () => res(); }); }
+  async function idbDel(k) { const db = await idb(); return new Promise((res) => { const t = db.transaction("kv", "readwrite").objectStore("kv").delete(k); t.onsuccess = () => res(); t.onerror = () => res(); }); }
+
+  const persistBox = document.getElementById("persist");
+  persistBox.checked = localStorage.getItem("tb_persist") === "1";
+  persistBox.addEventListener("change", () => { localStorage.setItem("tb_persist", persistBox.checked ? "1" : "0"); });
+  async function saveDisk() { if (!persistBox.checked) return; const d = new Uint8Array(x.memory.buffer, x.disk_ptr(), x.disk_len()).slice(); await idbPut("disk", d.buffer); }
+  document.getElementById("wipe").addEventListener("click", async () => { await idbDel("disk"); location.reload(); });
+
+  const seed = (Math.floor(Math.random() * 0xffffffff) >>> 0) || 1;
+  const saved = persistBox.checked ? await idbGet("disk") : null;
+  if (saved) {
+    const s = new Uint8Array(saved);
+    new Uint8Array(x.memory.buffer, x.disk_ptr(), Math.min(s.length, x.disk_len())).set(s.subarray(0, x.disk_len()));
+    x.boot_disk(seed);       // resume from the saved disk
+  } else {
+    x.boot(seed);            // fresh
+  }
+  x.out_reset();
+  screen = "";
+  setInterval(saveDisk, 5000);
+  window.addEventListener("beforeunload", saveDisk);
+
+  // advance the guest ~60fps; run() returns 1 when the guest parks (idle-waiting for input).
+  function frame() {
+    for (let k = 0; k < 6; k++) { if (x.run(4000000) === 1) break; }
+    flush();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  termEl.focus();
+  termEl.addEventListener("keydown", function (e) {
+    if (e.metaKey || (e.ctrlKey && e.key !== "c" && e.key !== "d")) return;
+    let b = null;
+    if (e.key === "Enter") b = [10];
+    else if (e.key === "Backspace") b = [127];
+    else if (e.key === "Tab") b = [9];
+    else if (e.ctrlKey && e.key === "c") b = [3];
+    else if (e.ctrlKey && e.key === "d") b = [4];
+    else if (e.key.length === 1) b = [e.key.charCodeAt(0) & 0xff];
+    if (b) { push(b); e.preventDefault(); }
+  });
+})();
+</script>
+</body>
+</html>
