@@ -97,6 +97,8 @@ pub const Machine = struct {
     epoch: u32 = 0, // wall-clock seconds at boot; rtc_secs = epoch + elapsed
     rtc_secs: u32 = 0,
     rtc_ms: u32 = 0,
+    rtc_acc: u32 = 0, // sub-millisecond instruction accumulator for the headless clock
+    rtc_real: bool = false, // rtc_ms is driven by a real wall-clock host (set_clock_ms)
     rng_state: u32 = 0x1F123BB5,
     rng_latch: u32 = 0,
     disk: []u8 = &[_]u8{}, // block-device backing store

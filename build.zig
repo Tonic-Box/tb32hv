@@ -35,16 +35,17 @@ pub fn build(b: *std.Build) void {
 
     // wasm shim: the HV + guest kernel compiled to wasm32 with browser/node exports.
     const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    const libtb32_wasm = b.dependency("tb32", .{ .target = wasm_target, .optimize = .ReleaseSmall });
+    const libtb32_wasm = b.dependency("tb32", .{ .target = wasm_target, .optimize = .ReleaseFast });
     const wasm = b.addExecutable(.{
         .name = "tb32hv",
         .root_source_file = b.path("src/wasm.zig"),
         .target = wasm_target,
-        .optimize = .ReleaseSmall,
+        .optimize = .ReleaseFast,
     });
     wasm.root_module.addImport("tb32", libtb32_wasm.module("tb32"));
     wasm.entry = .disabled;
     wasm.rdynamic = true;
+    wasm.export_table = true;
     const wasm_install = b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = "wasm" } } });
     const wasm_step = b.step("wasm", "Build the wasm shim (tb32hv.wasm)");
     wasm_step.dependOn(&wasm_install.step);
