@@ -10,6 +10,10 @@ const S2_STRIDE: u32 = 0x40000;
 const GUEST_BASE: u32 = 0x100000;
 const PARTITION: u32 = 32 * 1024 * 1024; // one guest, sized past the kernel's frame pool
 const RAM_SIZE: usize = GUEST_BASE + PARTITION + 0x100000;
+comptime {
+    if (RAM_SIZE > @as(usize, tb32.MAX_RAM_PAGES) << 12)
+        @compileError("RAM_SIZE exceeds the JIT block cache's page coverage; raise MAX_RAM_PAGES in libtb32/src/jit.zig");
+}
 const DISK_BLOCKS: u32 = 1024;
 const PTE_V: u32 = 1;
 const PTE_RWX: u32 = 2 | 4 | 8;
@@ -18,7 +22,7 @@ const STEPS_PER_MS: u64 = 1000;
 var ram: [RAM_SIZE]u8 = undefined;
 var disk: [DISK_BLOCKS * machine.BLOCK_SIZE]u8 = undefined;
 var asm_arena: [1 << 19]u8 = undefined; // scratch to assemble hv.s at boot
-var image_buf: [DISK_BLOCKS * machine.BLOCK_SIZE]u8 = undefined; // input staging + FS snapshot buffer
+var input_buf: [1 << 16]u8 = undefined; // stdin + tab-completion staging (FS snapshots go straight through disk_ptr)
 var g_restored: bool = false;
 var hart: tb32.Hart = undefined;
 var m: machine.Machine = undefined;
@@ -54,7 +58,7 @@ fn mapRange(root: u32, next: *u32, gpa: u32, hpa: u32, size: u32, perms: u32) vo
 }
 
 export fn image_ptr() u32 {
-    return @intFromPtr(&image_buf);
+    return @intFromPtr(&input_buf);
 }
 export fn out_ptr() u32 {
     return @intFromPtr(&m.out_buf);
@@ -67,7 +71,7 @@ export fn out_reset() void {
 }
 export fn stdin_push(len: u32) void {
     var i: u32 = 0;
-    while (i < len and i < image_buf.len) : (i += 1) m.wasmPush(image_buf[i]);
+    while (i < len and i < input_buf.len) : (i += 1) m.wasmPush(input_buf[i]);
 }
 
 export fn disk_ptr() u32 {
@@ -483,13 +487,9 @@ export fn seed_urandom(s: u32) void {
 export fn boot_login(seed: u32) void {
     bootImpl(seed, !g_restored);
 }
-export fn fs_snapshot() u32 {
-    @memcpy(image_buf[0..disk.len], disk[0..disk.len]);
-    return disk.len;
-}
-export fn fs_restore(n: u32) void {
-    const k = @min(n, disk.len);
-    @memcpy(disk[0..k], image_buf[0..k]);
+// The host reads and writes the block device directly through disk_ptr/disk_len; a restore just
+// marks the disk as already-populated so the next boot keeps it instead of reformatting.
+export fn mark_restored() void {
     g_restored = true;
 }
 
@@ -608,7 +608,7 @@ fn resolveDirPath(input: []const u8) []const u8 {
 
 export fn dir_list(pathlen: u32) void {
     m.out_n = 0;
-    const ino = nameiHost(resolveDirPath(image_buf[0..pathlen]));
+    const ino = nameiHost(resolveDirPath(input_buf[0..pathlen]));
     if (ino == 0 or inoField(ino, 0) != 2) return;
     const blk = inoField(ino, 20) * BS;
     var i: u32 = 0;
